@@ -10,5 +10,8 @@ router = APIRouter()
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
-def get_summary(current_user_id: Annotated[str, Depends(get_current_user_id)], db: DBSession) -> DashboardSummaryResponse:
-    return DashboardService(db).get_summary(current_user_id)
+async def get_summary(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    db: DBSession,
+) -> DashboardSummaryResponse:
+    return await DashboardService(db).get_summary(current_user_id)

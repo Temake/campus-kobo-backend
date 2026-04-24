@@ -1,5 +1,6 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-
+from app.db.init_db import init_db
 from app.api.router import api_router
 from app.core.config import settings
 

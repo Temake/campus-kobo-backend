@@ -1,13 +1,12 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class LearningService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_content(self) -> list[dict]:
+    async def list_content(self) -> list[dict]:
         return []
 
-    def bookmark_content(self, user_id: str, content_id: str) -> None:
-        # Create or toggle bookmark mapping for user and content.
+    async def bookmark_content(self, user_id: str, content_id: str) -> None:
         return None

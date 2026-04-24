@@ -1,22 +1,16 @@
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.expense import ExpenseCreateRequest, ExpenseResponse
 
 
 class ExpenseService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_expenses(self, user_id: str) -> list[ExpenseResponse]:
-        # Replace with paginated DB query.
+    async def list_expenses(self, user_id: str) -> list[ExpenseResponse]:
         return []
 
-    def create_expense(self, user_id: str, payload: ExpenseCreateRequest) -> ExpenseResponse:
-        # Business rules:
-        # - validate category ownership
-        # - persist expense
-        # - trigger budget recalculation
-        # - emit notification if user exceeds threshold
+    async def create_expense(self, user_id: str, payload: ExpenseCreateRequest) -> ExpenseResponse:
         return ExpenseResponse(id=str(uuid.uuid4()), status="logged", **payload.model_dump())

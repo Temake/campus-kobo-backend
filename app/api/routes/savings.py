@@ -10,24 +10,27 @@ router = APIRouter()
 
 
 @router.get("/goals")
-def list_savings_goals(current_user_id: Annotated[str, Depends(get_current_user_id)], db: DBSession) -> list[dict]:
-    return SavingsService(db).list_goals(current_user_id)
+async def list_savings_goals(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    db: DBSession,
+) -> list[dict]:
+    return await SavingsService(db).list_goals(current_user_id)
 
 
 @router.post("/goals", status_code=status.HTTP_201_CREATED)
-def create_savings_goal(
+async def create_savings_goal(
     payload: SavingsGoalCreateRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     db: DBSession,
 ) -> dict:
-    return SavingsService(db).create_goal(current_user_id, payload)
+    return await SavingsService(db).create_goal(current_user_id, payload)
 
 
 @router.post("/goals/{goal_id}/contributions", status_code=status.HTTP_201_CREATED)
-def add_contribution(
+async def add_contribution(
     goal_id: str,
     payload: SavingsContributionRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     db: DBSession,
 ) -> dict:
-    return SavingsService(db).add_contribution(current_user_id, goal_id, payload)
+    return await SavingsService(db).add_contribution(current_user_id, goal_id, payload)

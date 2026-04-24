@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/me", response_model=UserProfileResponse)
-def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> UserProfileResponse:
+async def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> UserProfileResponse:
     return UserProfileResponse(
         id=str(current_user.id),
         email=current_user.email,

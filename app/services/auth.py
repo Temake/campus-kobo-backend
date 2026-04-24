@@ -5,21 +5,31 @@ from uuid import UUID
 from fastapi import HTTPException, Request, status
 from jose import JWTError, jwt
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
 from app.models.onboarding import OnboardingProgress
 from app.models.user import EmailVerificationCode, RefreshToken, User, UserSession, UserStatus
-from app.schemas.auth import AuthUserResponse, LoginRequest, RegisterRequest, TokenResponse, VerifyEmailRequest
+from app.schemas.auth import (
+    ActionResponse,
+    AuthUserResponse,
+    ChangeEmailRequest,
+    ChangePasswordRequest,
+    CreatePinRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    VerifyEmailRequest,
+)
 
 
 class AuthService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def register(self, payload: RegisterRequest, request: Request) -> TokenResponse:
-        existing_user = self.db.scalar(select(User).where(User.email == payload.email))
+    async def register(self, payload: RegisterRequest, request: Request) -> TokenResponse:
+        existing_user = await self.db.scalar(select(User).where(User.email == payload.email))
         if existing_user is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists")
 
@@ -31,19 +41,19 @@ class AuthService:
             is_email_verified=False,
         )
         self.db.add(user)
-        self.db.flush()
+        await self.db.flush()
 
         self.db.add(OnboardingProgress(user_id=user.id, current_step="intro", completed_step_count=0, is_completed=False))
-        verification_code = self._create_email_verification_code(user.id)
+        verification_code = await self._create_email_verification_code(user.id)
 
-        token_response = self._issue_tokens(user, request)
-        self.db.commit()
+        token_response = await self._issue_tokens(user, request)
+        await self.db.commit()
         if settings.app_debug:
             return token_response.model_copy(update={"verification_code": verification_code.code})
         return token_response
 
-    def login(self, payload: LoginRequest, request: Request) -> TokenResponse:
-        user = self.db.scalar(select(User).where(User.email == payload.email))
+    async def login(self, payload: LoginRequest, request: Request) -> TokenResponse:
+        user = await self.db.scalar(select(User).where(User.email == payload.email))
         if user is None or user.password_hash is None or not verify_password(payload.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         if user.status == UserStatus.suspended:
@@ -57,34 +67,35 @@ class AuthService:
             )
 
         user.status = UserStatus.active
-        token_response = self._issue_tokens(user, request)
-        self.db.commit()
+        token_response = await self._issue_tokens(user, request)
+        await self.db.commit()
         return token_response
 
-    def refresh(self, refresh_token: str) -> TokenResponse:
+    async def refresh(self, refresh_token: str) -> TokenResponse:
         payload = self._decode_token(refresh_token, expected_type="refresh")
-        user_id = payload.get("sub")
-        stored_token = self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
+        user_id = self._parse_uuid(payload.get("sub"))
+
+        stored_token = await self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
         if stored_token is None or stored_token.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is invalid or revoked")
         if stored_token.expires_at <= self._utcnow():
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired")
 
-        user = self.db.scalar(select(User).where(User.id == UUID(user_id)))
+        user = await self.db.scalar(select(User).where(User.id == user_id))
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found")
 
         stored_token.revoked_at = self._utcnow()
-        token_response = self._issue_tokens(user, request=None)
-        self.db.commit()
+        token_response = await self._issue_tokens(user, request=None)
+        await self.db.commit()
         return token_response
 
-    def verify_email(self, payload: VerifyEmailRequest) -> None:
-        user = self.db.scalar(select(User).where(User.email == payload.email))
+    async def verify_email(self, payload: VerifyEmailRequest) -> None:
+        user = await self.db.scalar(select(User).where(User.email == payload.email))
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-        code_entry = self.db.scalar(
+        code_entry = await self.db.scalar(
             select(EmailVerificationCode)
             .where(
                 EmailVerificationCode.user_id == user.id,
@@ -101,27 +112,79 @@ class AuthService:
         code_entry.consumed_at = self._utcnow()
         user.is_email_verified = True
         user.status = UserStatus.active
-        self.db.commit()
+        await self.db.commit()
 
-    def resend_verification(self, email: str) -> None:
-        user = self.db.scalar(select(User).where(User.email == email))
+    async def resend_verification(self, email: str) -> None:
+        user = await self.db.scalar(select(User).where(User.email == email))
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         if user.is_email_verified:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already verified")
 
-        self._create_email_verification_code(user.id)
-        self.db.commit()
+        await self._create_email_verification_code(user.id)
+        await self.db.commit()
 
-    def logout(self, refresh_token: str) -> None:
-        stored_token = self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
+    async def change_password(self, current_user: User, payload: ChangePasswordRequest) -> ActionResponse:
+        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+        if payload.current_password == payload.new_password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different")
+
+        current_user.password_hash = hash_password(payload.new_password)
+        await self.db.commit()
+        return ActionResponse(message="Password updated successfully")
+
+    async def change_email(self, current_user: User, payload: ChangeEmailRequest) -> ActionResponse:
+        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+        if current_user.email == payload.new_email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New email must be different")
+
+        existing_user = await self.db.scalar(select(User).where(User.email == payload.new_email))
+        if existing_user is not None and existing_user.id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email address is already in use")
+
+        current_user.email = payload.new_email
+        current_user.is_email_verified = False
+        current_user.status = UserStatus.pending_verification
+        verification_code = await self._create_email_verification_code(current_user.id)
+        await self.db.commit()
+
+        if settings.app_debug:
+            return ActionResponse(
+                message="Email updated. Verify the new email address to continue logging in.",
+                verification_required=True,
+                verification_code=verification_code.code,
+            )
+        return ActionResponse(
+            message="Email updated. Verify the new email address to continue logging in.",
+            verification_required=True,
+        )
+
+    async def create_pin(self, current_user: User, payload: CreatePinRequest) -> ActionResponse:
+        if current_user.has_pin:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PIN already exists for this account")
+        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+        if payload.pin != payload.confirm_pin:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN confirmation does not match")
+        if not payload.pin.isdigit() or len(payload.pin) != 4:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN must be exactly 4 digits")
+
+        current_user.pin_hash = hash_password(payload.pin)
+        current_user.has_pin = True
+        await self.db.commit()
+        return ActionResponse(message="PIN created successfully")
+
+    async def logout(self, refresh_token: str) -> None:
+        stored_token = await self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
         if stored_token is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Refresh token not found")
         if stored_token.revoked_at is None:
             stored_token.revoked_at = self._utcnow()
-        self.db.commit()
+        await self.db.commit()
 
-    def _issue_tokens(self, user: User, request: Request | None) -> TokenResponse:
+    async def _issue_tokens(self, user: User, request: Request | None) -> TokenResponse:
         access_token = create_access_token(str(user.id), extra={"email": user.email})
         refresh_token = create_refresh_token(str(user.id), extra={"email": user.email})
 
@@ -133,28 +196,32 @@ class AuthService:
                 expires_at=self._utcnow() + timedelta(days=settings.refresh_token_expire_days),
             )
         )
-        self.db.add(
-            UserSession(
-                user_id=user.id,
-                device_name=request.headers.get("user-agent") if request else None,
-                platform="mobile" if request else None,
-                ip_address=request.client.host if request and request.client else None,
-                is_active=True,
-                last_seen_at=self._utcnow(),
+        if request is not None:
+            self.db.add(
+                UserSession(
+                    user_id=user.id,
+                    device_name=request.headers.get("user-agent"),
+                    platform="mobile",
+                    ip_address=request.client.host if request.client else None,
+                    is_active=True,
+                    last_seen_at=self._utcnow(),
+                )
             )
-        )
+
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            user=self._serialize_user(user),
+            user=await self._serialize_user(user),
             verification_required=not user.is_email_verified,
         )
 
-    def _create_email_verification_code(self, user_id: UUID) -> EmailVerificationCode:
-        existing_codes = self.db.scalars(
-            select(EmailVerificationCode).where(
-                EmailVerificationCode.user_id == user_id,
-                EmailVerificationCode.consumed_at.is_(None),
+    async def _create_email_verification_code(self, user_id: UUID) -> EmailVerificationCode:
+        existing_codes = (
+            await self.db.scalars(
+                select(EmailVerificationCode).where(
+                    EmailVerificationCode.user_id == user_id,
+                    EmailVerificationCode.consumed_at.is_(None),
+                )
             )
         ).all()
         now = self._utcnow()
@@ -167,6 +234,7 @@ class AuthService:
             expires_at=now + timedelta(minutes=15),
         )
         self.db.add(code_entry)
+        await self.db.flush()
         return code_entry
 
     @staticmethod
@@ -187,11 +255,21 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         return payload
 
-    def _serialize_user(self, user: User) -> AuthUserResponse:
-        onboarding = self.db.scalar(select(OnboardingProgress).where(OnboardingProgress.user_id == user.id))
+    @staticmethod
+    def _parse_uuid(value: str | None) -> UUID:
+        if value is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token subject is missing")
+        try:
+            return UUID(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token subject is invalid") from exc
+
+    async def _serialize_user(self, user: User) -> AuthUserResponse:
+        onboarding = await self.db.scalar(select(OnboardingProgress).where(OnboardingProgress.user_id == user.id))
         return AuthUserResponse(
             id=str(user.id),
             email=user.email,
             full_name=user.full_name,
             onboarding_completed=bool(onboarding and onboarding.is_completed),
+            has_pin=user.has_pin,
         )

@@ -1,21 +1,19 @@
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.savings import SavingsContributionRequest, SavingsGoalCreateRequest
 
 
 class SavingsService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_goals(self, user_id: str) -> list[dict]:
+    async def list_goals(self, user_id: str) -> list[dict]:
         return []
 
-    def create_goal(self, user_id: str, payload: SavingsGoalCreateRequest) -> dict:
-        # Persist savings goal and initialize progress tracking.
+    async def create_goal(self, user_id: str, payload: SavingsGoalCreateRequest) -> dict:
         return {"id": str(uuid.uuid4()), **payload.model_dump()}
 
-    def add_contribution(self, user_id: str, goal_id: str, payload: SavingsContributionRequest) -> dict:
-        # Validate ownership, save contribution, and update current savings balance.
+    async def add_contribution(self, user_id: str, goal_id: str, payload: SavingsContributionRequest) -> dict:
         return {"goal_id": goal_id, **payload.model_dump()}

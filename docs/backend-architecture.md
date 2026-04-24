@@ -2,7 +2,7 @@
 
 ## 1. System shape
 
-FastAPI is organized by product domains that mirror the UI:
+FastAPI is organized by product domains that mirror the UI, with async SQLAlchemy sessions shared across the app and Alembic managing schema migrations:
 
 - `auth`: sign up, login, token refresh, logout, verification
 - `onboarding`: goal selection, starter budget, starter categories
@@ -131,6 +131,10 @@ FastAPI is organized by product domains that mirror the UI:
 - `POST /auth/login`
 - `POST /auth/refresh`
 - `POST /auth/verify-email`
+- `POST /auth/resend-verification`
+- `POST /auth/change-password`
+- `POST /auth/change-email`
+- `POST /auth/create-pin`
 - `POST /auth/logout`
 
 ### User / settings
@@ -211,8 +215,8 @@ FastAPI is organized by product domains that mirror the UI:
 
 ## 6. Recommended next implementation pieces
 
-1. Add repositories or CRUD modules instead of in-route placeholders.
-2. Add Alembic migrations and seed scripts.
+1. Add repositories or CRUD modules instead of placeholder service methods.
+2. Add seed scripts for categories, FAQ content, and learning content.
 3. Add Redis-backed OTP and token revocation.
 4. Add background jobs for reminders, alerts, and email delivery.
 5. Add tests for auth, onboarding, expense creation, and budget calculations.

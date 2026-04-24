@@ -1,17 +1,16 @@
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.budget import BudgetCreateRequest, BudgetResponse
 
 
 class BudgetService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_budgets(self, user_id: str) -> list[BudgetResponse]:
+    async def list_budgets(self, user_id: str) -> list[BudgetResponse]:
         return []
 
-    def create_budget(self, user_id: str, payload: BudgetCreateRequest) -> BudgetResponse:
-        # Enforce one active budget per period per user and validate date window.
+    async def create_budget(self, user_id: str, payload: BudgetCreateRequest) -> BudgetResponse:
         return BudgetResponse(id=str(uuid.uuid4()), status="active", **payload.model_dump())

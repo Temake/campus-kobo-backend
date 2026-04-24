@@ -1,15 +1,14 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.notification import NotificationPreferenceUpdateRequest
 
 
 class NotificationService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_preferences(self, user_id: str) -> list[dict]:
+    async def list_preferences(self, user_id: str) -> list[dict]:
         return []
 
-    def upsert_preference(self, user_id: str, payload: NotificationPreferenceUpdateRequest) -> None:
-        # Upsert notification preference and validate quiet hour windows.
+    async def upsert_preference(self, user_id: str, payload: NotificationPreferenceUpdateRequest) -> None:
         return None

@@ -1,18 +1,16 @@
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.support import SupportMessageCreateRequest
 
 
 class SupportService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def list_faqs(self, search: str | None = None, category: str | None = None) -> list[dict]:
-        # Query published FAQ items and support search/filter.
+    async def list_faqs(self, search: str | None = None, category: str | None = None) -> list[dict]:
         return []
 
-    def create_message(self, payload: SupportMessageCreateRequest) -> dict:
-        # Persist support message and enqueue ticket/email notification.
+    async def create_message(self, payload: SupportMessageCreateRequest) -> dict:
         return {"id": str(uuid.uuid4()), **payload.model_dump()}

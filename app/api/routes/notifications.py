@@ -10,14 +10,17 @@ router = APIRouter()
 
 
 @router.get("/preferences")
-def list_preferences(current_user_id: Annotated[str, Depends(get_current_user_id)], db: DBSession) -> list[dict]:
-    return NotificationService(db).list_preferences(current_user_id)
+async def list_preferences(
+    current_user_id: Annotated[str, Depends(get_current_user_id)],
+    db: DBSession,
+) -> list[dict]:
+    return await NotificationService(db).list_preferences(current_user_id)
 
 
 @router.put("/preferences", status_code=status.HTTP_204_NO_CONTENT)
-def update_preference(
+async def update_preference(
     payload: NotificationPreferenceUpdateRequest,
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     db: DBSession,
 ) -> None:
-    NotificationService(db).upsert_preference(current_user_id, payload)
+    await NotificationService(db).upsert_preference(current_user_id, payload)

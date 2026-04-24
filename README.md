@@ -5,10 +5,12 @@ FastAPI backend architecture scaffolded from the CampusKobo mobile UI flows in F
 ## What is included
 
 - FastAPI application factory and router registration
+- Async SQLAlchemy 2.0 engine and session management
 - SQLAlchemy 2.0 models for auth, onboarding, money tracking, learning, support, and settings
 - Pydantic request and response schemas
-- JWT-based authentication flow boilerplate
+- JWT-based authentication flow with persisted users, verification codes, refresh tokens, password change, email change, and PIN creation
 - Service layer stubs for business logic
+- Alembic migration scaffolding with an initial schema revision
 - Database schema documentation
 
 ## Product domains covered
@@ -30,6 +32,7 @@ FastAPI backend architecture scaffolded from the CampusKobo mobile UI flows in F
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -37,10 +40,29 @@ uvicorn app.main:app --reload
 
 Copy `.env.example` to `.env` and update values.
 
+## Database initialization
+
+For local bootstrap without migrations:
+
+```bash
+python -m app.db.init_db
+```
+
+Preferred workflow:
+
+```bash
+alembic upgrade head
+```
+
+Create a new migration after model changes:
+
+```bash
+alembic revision --autogenerate -m "describe change"
+```
+
 ## Suggested next steps
 
-1. Add Alembic migrations.
-2. Add async database support if desired.
-3. Add Redis for refresh token/session revocation and notification jobs.
-4. Wire in actual email and OTP delivery providers.
-5. Add tests for auth, expense creation, budgeting, and onboarding flows.
+1. Wire verification emails and PIN reset delivery through a real provider.
+2. Add Redis for refresh token/session revocation and notification jobs.
+3. Replace placeholder domain services with real queries and pagination.
+4. Add tests for auth, expense creation, budgeting, and onboarding flows.
