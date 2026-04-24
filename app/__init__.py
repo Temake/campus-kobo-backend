@@ -1,0 +1,1 @@
+"""CampusKobo FastAPI backend package."""
