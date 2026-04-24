@@ -67,3 +67,14 @@ class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+
+class EmailVerificationCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "email_verification_codes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    code: Mapped[str] = mapped_column(String(12), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship()

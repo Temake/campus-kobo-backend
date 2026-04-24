@@ -16,10 +16,17 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user: "AuthUserResponse"
+    verification_required: bool = False
+    verification_code: str | None = None
 
 
 class AuthUserResponse(BaseModel):
@@ -30,4 +37,8 @@ class AuthUserResponse(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
+    email: EmailStr
     code: str = Field(min_length=4, max_length=12)
+
+
+TokenResponse.model_rebuild()

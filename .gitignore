@@ -3,3 +3,5 @@
 __pycache__
 .claude/
 .claude/settings.json
+*.db
+*.sqlite

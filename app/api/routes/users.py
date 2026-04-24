@@ -2,20 +2,20 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_current_user_id
+from app.api.deps import get_current_user
+from app.models.user import User
 from app.schemas.user import UserProfileResponse
 
 router = APIRouter()
 
 
 @router.get("/me", response_model=UserProfileResponse)
-def get_me(current_user_id: Annotated[str, Depends(get_current_user_id)]) -> UserProfileResponse:
-    # Replace with a proper read service or repository query.
+def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> UserProfileResponse:
     return UserProfileResponse(
-        id=current_user_id,
-        email="student@example.com",
-        phone_number=None,
-        full_name="Campus Kobo User",
-        has_pin=False,
-        biometric_enabled=False,
+        id=str(current_user.id),
+        email=current_user.email,
+        phone_number=current_user.phone_number,
+        full_name=current_user.full_name,
+        has_pin=current_user.has_pin,
+        biometric_enabled=current_user.biometric_enabled,
     )

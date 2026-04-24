@@ -7,4 +7,4 @@ from app.models.notification import NotificationPreference
 from app.models.onboarding import OnboardingProgress, UserGoal, UserGoalType
 from app.models.savings import SavingsContribution, SavingsGoal, SavingsGoalStatus
 from app.models.support import FAQCategory, FAQItem, SupportMessage, SupportMessageStatus
-from app.models.user import AuthProvider, RefreshToken, User, UserSession, UserStatus
+from app.models.user import AuthProvider, EmailVerificationCode, RefreshToken, User, UserSession, UserStatus
