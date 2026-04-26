@@ -95,6 +95,14 @@ FastAPI is organized by product domains that mirror the UI, with async SQLAlchem
 6. Issue verification code via email or SMS.
 7. Return access and refresh tokens or optionally gate access until verification.
 
+### Google sign up / login
+
+1. `POST /api/v1/auth/google`
+2. Verify the Google ID token against the configured Google client ID.
+3. Resolve the user by Google provider subject first, then by verified email for safe linking.
+4. Create the user and onboarding progress if this is the first Google sign-in.
+5. Issue access and refresh tokens.
+
 ### Verify email
 
 1. `POST /api/v1/auth/verify-email`
@@ -129,6 +137,7 @@ FastAPI is organized by product domains that mirror the UI, with async SQLAlchem
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /auth/google`
 - `POST /auth/refresh`
 - `POST /auth/verify-email`
 - `POST /auth/resend-verification`

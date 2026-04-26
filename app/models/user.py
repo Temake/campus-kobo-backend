@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -31,6 +31,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     full_name: Mapped[str | None] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255))
     provider: Mapped[AuthProvider] = mapped_column(Enum(AuthProvider), default=AuthProvider.email, nullable=False)
+    provider_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.pending_verification, nullable=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -71,6 +72,7 @@ class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class EmailVerificationCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "email_verification_codes"
+    __table_args__ = (Index("ix_email_verification_codes_lookup", "user_id", "code", "consumed_at"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     code: Mapped[str] = mapped_column(String(12), nullable=False)

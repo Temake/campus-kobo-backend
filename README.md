@@ -8,7 +8,7 @@ FastAPI backend architecture scaffolded from the CampusKobo mobile UI flows in F
 - Async SQLAlchemy 2.0 engine and session management
 - SQLAlchemy 2.0 models for auth, onboarding, money tracking, learning, support, and settings
 - Pydantic request and response schemas
-- JWT-based authentication flow with persisted users, verification codes, refresh tokens, password change, email change, and PIN creation
+- JWT-based authentication flow with persisted users, verification codes, refresh tokens, password change, email change, PIN creation, and Google sign-in/sign-up
 - Service layer stubs for business logic
 - Alembic migration scaffolding with an initial schema revision
 - Database schema documentation
@@ -59,6 +59,16 @@ Create a new migration after model changes:
 ```bash
 alembic revision --autogenerate -m "describe change"
 ```
+
+## Authentication features
+
+- Email sign up and login
+- Google sign up and login via verified Google ID token
+- Email verification and resend verification
+- Refresh token rotation and logout
+- Change password
+- Change email
+- Create account PIN
 
 ## Suggested next steps
 

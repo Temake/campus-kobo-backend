@@ -3,20 +3,23 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
+from app.integrations.google_identity import verify_google_id_token
 from app.models.onboarding import OnboardingProgress
-from app.models.user import EmailVerificationCode, RefreshToken, User, UserSession, UserStatus
+from app.models.user import AuthProvider, EmailVerificationCode, RefreshToken, User, UserSession, UserStatus
 from app.schemas.auth import (
     ActionResponse,
     AuthUserResponse,
     ChangeEmailRequest,
     ChangePasswordRequest,
     CreatePinRequest,
+    GoogleAuthRequest,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
@@ -29,21 +32,44 @@ class AuthService:
         self.db = db
 
     async def register(self, payload: RegisterRequest, request: Request) -> TokenResponse:
-        existing_user = await self.db.scalar(select(User).where(User.email == payload.email))
+        """Register a new user account and return authentication tokens.
+
+        This method normalizes the supplied email, checks whether an account with the
+        same email already exists, and raises HTTP 409 if it does. If the email is
+        available, it creates a new `User` record with a hashed password, pending
+        verification status, and an unverified email flag.
+
+        The session is flushed before creating related records so the new user's primary
+        key is assigned by the database and available as `user.id`. `db.flush()` sends
+        all pending SQL changes to the database immediately, but it does not commit the
+        transaction. In practice, this means:
+
+        - the INSERT for the new user is executed now;
+        - auto-generated values such as the user ID become available;
+        - subsequent operations in the same transaction can safely use that ID;
+        - the changes are still reversible until `commit()` is called.
+
+        After flushing, the method creates onboarding progress, generates an email
+        verification code, issues authentication tokens, and commits the transaction.
+        In debug mode, the verification code is included in the response for easier
+        testing.
+        """
+        normalized_email = self._normalize_email(payload.email)
+        existing_user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if existing_user is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists")
 
         user = User(
-            email=payload.email,
+            email=normalized_email,
             full_name=payload.full_name,
-            password_hash=hash_password(payload.password),
+            password_hash=await self._hash_secret(payload.password),
             status=UserStatus.pending_verification,
             is_email_verified=False,
         )
         self.db.add(user)
         await self.db.flush()
 
-        self.db.add(OnboardingProgress(user_id=user.id, current_step="intro", completed_step_count=0, is_completed=False))
+        await self._ensure_onboarding_progress(user.id)
         verification_code = await self._create_email_verification_code(user.id)
 
         token_response = await self._issue_tokens(user, request)
@@ -52,9 +78,54 @@ class AuthService:
             return token_response.model_copy(update={"verification_code": verification_code.code})
         return token_response
 
+    async def google_auth(self, payload: GoogleAuthRequest, request: Request) -> TokenResponse:
+        google_payload = await verify_google_id_token(payload.id_token)
+        google_email = google_payload["email"].lower()
+        google_subject = google_payload["sub"]
+        google_name = google_payload.get("name")
+
+        user = await self.db.scalar(select(User).where(User.provider_subject == google_subject))
+        if user is None:
+            user = await self.db.scalar(select(User).where(User.email == google_email))
+
+        if user is None:
+            user = User(
+                email=google_email,
+                full_name=google_name,
+                provider=AuthProvider.google,
+                provider_subject=google_subject,
+                status=UserStatus.active,
+                is_email_verified=True,
+            )
+            self.db.add(user)
+            await self.db.flush()
+            await self._ensure_onboarding_progress(user.id)
+        else:
+            if user.status == UserStatus.suspended:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is suspended")
+            if user.status == UserStatus.deleted:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is no longer available")
+            if user.provider_subject and user.provider_subject != google_subject:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Google account linkage mismatch")
+
+            user.provider_subject = google_subject
+            if not user.full_name and google_name:
+                user.full_name = google_name
+            user.is_email_verified = True
+            user.status = UserStatus.active
+            await self._ensure_onboarding_progress(user.id)
+
+        token_response = await self._issue_tokens(user, request)
+        await self.db.commit()
+        return token_response
+
     async def login(self, payload: LoginRequest, request: Request) -> TokenResponse:
-        user = await self.db.scalar(select(User).where(User.email == payload.email))
-        if user is None or user.password_hash is None or not verify_password(payload.password, user.password_hash):
+        normalized_email = self._normalize_email(payload.email)
+        user = await self.db.scalar(select(User).where(User.email == normalized_email))
+        password_is_valid = False
+        if user is not None and user.password_hash is not None:
+            password_is_valid = await self._verify_secret(payload.password, user.password_hash)
+        if user is None or user.password_hash is None or not password_is_valid:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         if user.status == UserStatus.suspended:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is suspended")
@@ -91,7 +162,8 @@ class AuthService:
         return token_response
 
     async def verify_email(self, payload: VerifyEmailRequest) -> None:
-        user = await self.db.scalar(select(User).where(User.email == payload.email))
+        normalized_email = self._normalize_email(payload.email)
+        user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -115,7 +187,8 @@ class AuthService:
         await self.db.commit()
 
     async def resend_verification(self, email: str) -> None:
-        user = await self.db.scalar(select(User).where(User.email == email))
+        normalized_email = self._normalize_email(email)
+        user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         if user.is_email_verified:
@@ -125,26 +198,29 @@ class AuthService:
         await self.db.commit()
 
     async def change_password(self, current_user: User, payload: ChangePasswordRequest) -> ActionResponse:
-        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+        if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
         if payload.current_password == payload.new_password:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different")
 
-        current_user.password_hash = hash_password(payload.new_password)
+        current_user.password_hash = await self._hash_secret(payload.new_password)
         await self.db.commit()
         return ActionResponse(message="Password updated successfully")
 
     async def change_email(self, current_user: User, payload: ChangeEmailRequest) -> ActionResponse:
-        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+        if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
-        if current_user.email == payload.new_email:
+
+        normalized_email = self._normalize_email(payload.new_email)
+        if current_user.email == normalized_email:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New email must be different")
 
-        existing_user = await self.db.scalar(select(User).where(User.email == payload.new_email))
+        existing_user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if existing_user is not None and existing_user.id != current_user.id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email address is already in use")
 
-        current_user.email = payload.new_email
+        current_user.email = normalized_email
+        current_user.provider_subject = None
         current_user.is_email_verified = False
         current_user.status = UserStatus.pending_verification
         verification_code = await self._create_email_verification_code(current_user.id)
@@ -164,14 +240,14 @@ class AuthService:
     async def create_pin(self, current_user: User, payload: CreatePinRequest) -> ActionResponse:
         if current_user.has_pin:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PIN already exists for this account")
-        if current_user.password_hash is None or not verify_password(payload.current_password, current_user.password_hash):
+        if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
         if payload.pin != payload.confirm_pin:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN confirmation does not match")
         if not payload.pin.isdigit() or len(payload.pin) != 4:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN must be exactly 4 digits")
 
-        current_user.pin_hash = hash_password(payload.pin)
+        current_user.pin_hash = await self._hash_secret(payload.pin)
         current_user.has_pin = True
         await self.db.commit()
         return ActionResponse(message="PIN created successfully")
@@ -237,6 +313,14 @@ class AuthService:
         await self.db.flush()
         return code_entry
 
+    async def _ensure_onboarding_progress(self, user_id: UUID) -> OnboardingProgress:
+        onboarding = await self.db.scalar(select(OnboardingProgress).where(OnboardingProgress.user_id == user_id))
+        if onboarding is None:
+            onboarding = OnboardingProgress(user_id=user_id, current_step="intro", completed_step_count=0, is_completed=False)
+            self.db.add(onboarding)
+            await self.db.flush()
+        return onboarding
+
     @staticmethod
     def _generate_verification_code() -> str:
         return f"{secrets.randbelow(1_000_000):06d}"
@@ -263,6 +347,18 @@ class AuthService:
             return UUID(value)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token subject is invalid") from exc
+
+    @staticmethod
+    def _normalize_email(email: str) -> str:
+        return email.strip().lower()
+
+    @staticmethod
+    async def _hash_secret(value: str) -> str:
+        return await run_in_threadpool(hash_password, value)
+
+    @staticmethod
+    async def _verify_secret(plain_value: str, hashed_value: str) -> bool:
+        return await run_in_threadpool(verify_password, plain_value, hashed_value)
 
     async def _serialize_user(self, user: User) -> AuthUserResponse:
         onboarding = await self.db.scalar(select(OnboardingProgress).where(OnboardingProgress.user_id == user.id))

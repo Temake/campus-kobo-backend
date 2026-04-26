@@ -9,6 +9,7 @@ from app.schemas.auth import (
     ChangeEmailRequest,
     ChangePasswordRequest,
     CreatePinRequest,
+    GoogleAuthRequest,
     LoginRequest,
     RefreshTokenRequest,
     RegisterRequest,
@@ -29,6 +30,11 @@ async def register(payload: RegisterRequest, request: Request, db: DBSession) ->
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, request: Request, db: DBSession) -> TokenResponse:
     return await AuthService(db).login(payload, request)
+
+
+@router.post("/google", response_model=TokenResponse)
+async def google_auth(payload: GoogleAuthRequest, request: Request, db: DBSession) -> TokenResponse:
+    return await AuthService(db).google_auth(payload, request)
 
 
 @router.post("/refresh", response_model=TokenResponse)

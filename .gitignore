@@ -5,3 +5,4 @@ __pycache__
 .claude/settings.json
 *.db
 *.sqlite
+skills.md

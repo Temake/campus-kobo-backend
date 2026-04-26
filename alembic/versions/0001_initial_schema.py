@@ -50,6 +50,7 @@ def upgrade() -> None:
         sa.Column("full_name", sa.String(length=255), nullable=True),
         sa.Column("password_hash", sa.String(length=255), nullable=True),
         sa.Column("provider", auth_provider, nullable=False),
+        sa.Column("provider_subject", sa.String(length=255), nullable=True),
         sa.Column("status", user_status, nullable=False),
         sa.Column("is_email_verified", sa.Boolean(), nullable=False),
         sa.Column("is_phone_verified", sa.Boolean(), nullable=False),
@@ -60,6 +61,7 @@ def upgrade() -> None:
         *_timestamps(),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
+        sa.UniqueConstraint("provider_subject"),
         sa.UniqueConstraint("phone_number"),
     )
 
@@ -122,6 +124,12 @@ def upgrade() -> None:
         *_timestamps(),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "ix_email_verification_codes_lookup",
+        "email_verification_codes",
+        ["user_id", "code", "consumed_at"],
+        unique=False,
     )
 
     op.create_table(
@@ -303,6 +311,7 @@ def downgrade() -> None:
     op.drop_table("savings_goals")
     op.drop_table("expenses")
     op.drop_table("budgets")
+    op.drop_index("ix_email_verification_codes_lookup", table_name="email_verification_codes")
     op.drop_table("email_verification_codes")
     op.drop_table("refresh_tokens")
     op.drop_table("user_sessions")
