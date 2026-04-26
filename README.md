@@ -64,7 +64,7 @@ alembic revision --autogenerate -m "describe change"
 
 - Email sign up and login
 - Google sign up and login via verified Google ID token
-- Email verification and resend verification
+- 6-digit email verification and resend verification via Brevo SMTP
 - Refresh token rotation and logout
 - Change password
 - Change email

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 from app.api.deps import DBSession, get_current_user
 from app.models.user import User
@@ -23,8 +23,14 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, request: Request, db: DBSession) -> TokenResponse:
-    return await AuthService(db).register(payload, request)
+async def register(
+    payload: RegisterRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: DBSession,
+) -> TokenResponse:
+
+    return await AuthService(db).register(payload, request, background_tasks)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -48,8 +54,8 @@ async def verify_email(payload: VerifyEmailRequest, db: DBSession) -> None:
 
 
 @router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
-async def resend_verification(payload: ResendVerificationRequest, db: DBSession) -> None:
-    await AuthService(db).resend_verification(payload.email)
+async def resend_verification(payload: ResendVerificationRequest, background_tasks: BackgroundTasks, db: DBSession) -> None:
+    await AuthService(db).resend_verification(payload.email, background_tasks)
 
 
 @router.post("/change-password", response_model=ActionResponse)
@@ -64,10 +70,11 @@ async def change_password(
 @router.post("/change-email", response_model=ActionResponse)
 async def change_email(
     payload: ChangeEmailRequest,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_user)],
     db: DBSession,
 ) -> ActionResponse:
-    return await AuthService(db).change_email(current_user, payload)
+    return await AuthService(db).change_email(current_user, payload, background_tasks)
 
 
 @router.post("/create-pin", response_model=ActionResponse)

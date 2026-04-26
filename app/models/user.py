@@ -23,6 +23,11 @@ class AuthProvider(str, enum.Enum):
     apple = "apple"
 
 
+class VerificationPurpose(str, enum.Enum):
+    signup = "signup"
+    change_email = "change_email"
+
+
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -72,11 +77,18 @@ class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class EmailVerificationCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "email_verification_codes"
-    __table_args__ = (Index("ix_email_verification_codes_lookup", "user_id", "code", "consumed_at"),)
+    __table_args__ = (
+        Index("ix_email_verification_codes_lookup", "user_id", "purpose", "consumed_at"),
+        Index("ix_email_verification_codes_email_lookup", "sent_to_email", "purpose", "consumed_at"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    code: Mapped[str] = mapped_column(String(12), nullable=False)
+    purpose: Mapped[VerificationPurpose] = mapped_column(Enum(VerificationPurpose), nullable=False)
+    sent_to_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
     user: Mapped["User"] = relationship()

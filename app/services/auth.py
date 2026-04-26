@@ -1,8 +1,10 @@
+import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from uuid import UUID
 
-from fastapi import HTTPException, Request, status
+from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -10,9 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
+from app.integrations.email import EmailService
 from app.integrations.google_identity import verify_google_id_token
 from app.models.onboarding import OnboardingProgress
-from app.models.user import AuthProvider, EmailVerificationCode, RefreshToken, User, UserSession, UserStatus
+from app.models.user import (
+    AuthProvider,
+    EmailVerificationCode,
+    RefreshToken,
+    User,
+    UserSession,
+    UserStatus,
+    VerificationPurpose,
+)
 from app.schemas.auth import (
     ActionResponse,
     AuthUserResponse,
@@ -30,30 +41,10 @@ from app.schemas.auth import (
 class AuthService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self.email_service = EmailService()
 
-    async def register(self, payload: RegisterRequest, request: Request) -> TokenResponse:
-        """Register a new user account and return authentication tokens.
-
-        This method normalizes the supplied email, checks whether an account with the
-        same email already exists, and raises HTTP 409 if it does. If the email is
-        available, it creates a new `User` record with a hashed password, pending
-        verification status, and an unverified email flag.
-
-        The session is flushed before creating related records so the new user's primary
-        key is assigned by the database and available as `user.id`. `db.flush()` sends
-        all pending SQL changes to the database immediately, but it does not commit the
-        transaction. In practice, this means:
-
-        - the INSERT for the new user is executed now;
-        - auto-generated values such as the user ID become available;
-        - subsequent operations in the same transaction can safely use that ID;
-        - the changes are still reversible until `commit()` is called.
-
-        After flushing, the method creates onboarding progress, generates an email
-        verification code, issues authentication tokens, and commits the transaction.
-        In debug mode, the verification code is included in the response for easier
-        testing.
-        """
+    async def register(self, payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks) -> TokenResponse:
+        self._ensure_email_delivery_ready()
         normalized_email = self._normalize_email(payload.email)
         existing_user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if existing_user is not None:
@@ -65,22 +56,29 @@ class AuthService:
             password_hash=await self._hash_secret(payload.password),
             status=UserStatus.pending_verification,
             is_email_verified=False,
+            provider=AuthProvider.email,
         )
         self.db.add(user)
         await self.db.flush()
 
         await self._ensure_onboarding_progress(user.id)
-        verification_code = await self._create_email_verification_code(user.id)
+        verification_code = await self._issue_email_verification_code(
+            user=user,
+            purpose=VerificationPurpose.signup,
+            target_email=normalized_email,
+        )
 
         token_response = await self._issue_tokens(user, request)
         await self.db.commit()
+        self._queue_verification_email(background_tasks, normalized_email, verification_code, VerificationPurpose.signup)
+
         if settings.app_debug:
-            return token_response.model_copy(update={"verification_code": verification_code.code})
+            return token_response.model_copy(update={"verification_code": verification_code})
         return token_response
 
     async def google_auth(self, payload: GoogleAuthRequest, request: Request) -> TokenResponse:
         google_payload = await verify_google_id_token(payload.id_token)
-        google_email = google_payload["email"].lower()
+        google_email = self._normalize_email(google_payload["email"])
         google_subject = google_payload["sub"]
         google_name = google_payload.get("name")
 
@@ -149,7 +147,7 @@ class AuthService:
         stored_token = await self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
         if stored_token is None or stored_token.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is invalid or revoked")
-        if stored_token.expires_at <= self._utcnow():
+        if self._to_utc_aware(stored_token.expires_at) <= self._utcnow():
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired")
 
         user = await self.db.scalar(select(User).where(User.id == user_id))
@@ -163,39 +161,67 @@ class AuthService:
 
     async def verify_email(self, payload: VerifyEmailRequest) -> None:
         normalized_email = self._normalize_email(payload.email)
-        user = await self.db.scalar(select(User).where(User.email == normalized_email))
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-        code_entry = await self.db.scalar(
+        verification_record = await self.db.scalar(
             select(EmailVerificationCode)
             .where(
-                EmailVerificationCode.user_id == user.id,
-                EmailVerificationCode.code == payload.code,
+                EmailVerificationCode.sent_to_email == normalized_email,
                 EmailVerificationCode.consumed_at.is_(None),
             )
             .order_by(EmailVerificationCode.created_at.desc())
         )
-        if code_entry is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification code")
-        if code_entry.expires_at <= self._utcnow():
+        if verification_record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active verification request found")
+        if self._to_utc_aware(verification_record.expires_at) <= self._utcnow():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification code has expired")
+        if verification_record.attempt_count >= settings.email_verification_max_attempts:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many verification attempts")
 
-        code_entry.consumed_at = self._utcnow()
+        verification_record.attempt_count += 1
+        provided_hash = self._hash_verification_code(
+            email=normalized_email,
+            purpose=verification_record.purpose,
+            code=payload.code,
+        )
+        if not hmac.compare_digest(provided_hash, verification_record.code_hash):
+            await self.db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification code")
+
+        user = await self.db.scalar(select(User).where(User.id == verification_record.user_id))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        verification_record.consumed_at = self._utcnow()
+        user.email = normalized_email
         user.is_email_verified = True
         user.status = UserStatus.active
         await self.db.commit()
 
-    async def resend_verification(self, email: str) -> None:
+    async def resend_verification(self, email: str, background_tasks: BackgroundTasks) -> None:
+        self._ensure_email_delivery_ready()
         normalized_email = self._normalize_email(email)
-        user = await self.db.scalar(select(User).where(User.email == normalized_email))
+        verification_record = await self.db.scalar(
+            select(EmailVerificationCode)
+            .where(
+                EmailVerificationCode.sent_to_email == normalized_email,
+                EmailVerificationCode.consumed_at.is_(None),
+            )
+            .order_by(EmailVerificationCode.created_at.desc())
+        )
+        if verification_record is not None:
+            user = await self.db.scalar(select(User).where(User.id == verification_record.user_id))
+            purpose = verification_record.purpose
+        else:
+            user = await self.db.scalar(select(User).where(User.email == normalized_email))
+            purpose = VerificationPurpose.signup
+
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        if user.is_email_verified:
+        if user.is_email_verified and purpose == VerificationPurpose.signup:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already verified")
 
-        await self._create_email_verification_code(user.id)
+        verification_code = await self._issue_email_verification_code(user=user, purpose=purpose, target_email=normalized_email)
         await self.db.commit()
+        self._queue_verification_email(background_tasks, normalized_email, verification_code, purpose)
 
     async def change_password(self, current_user: User, payload: ChangePasswordRequest) -> ActionResponse:
         if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
@@ -207,7 +233,13 @@ class AuthService:
         await self.db.commit()
         return ActionResponse(message="Password updated successfully")
 
-    async def change_email(self, current_user: User, payload: ChangeEmailRequest) -> ActionResponse:
+    async def change_email(
+        self,
+        current_user: User,
+        payload: ChangeEmailRequest,
+        background_tasks: BackgroundTasks,
+    ) -> ActionResponse:
+        self._ensure_email_delivery_ready()
         if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
 
@@ -219,21 +251,26 @@ class AuthService:
         if existing_user is not None and existing_user.id != current_user.id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email address is already in use")
 
-        current_user.email = normalized_email
         current_user.provider_subject = None
         current_user.is_email_verified = False
         current_user.status = UserStatus.pending_verification
-        verification_code = await self._create_email_verification_code(current_user.id)
+
+        verification_code = await self._issue_email_verification_code(
+            user=current_user,
+            purpose=VerificationPurpose.change_email,
+            target_email=normalized_email,
+        )
         await self.db.commit()
+        self._queue_verification_email(background_tasks, normalized_email, verification_code, VerificationPurpose.change_email)
 
         if settings.app_debug:
             return ActionResponse(
-                message="Email updated. Verify the new email address to continue logging in.",
+                message="Email updated. Verify the new email address to continue using this account.",
                 verification_required=True,
-                verification_code=verification_code.code,
+                verification_code=verification_code,
             )
         return ActionResponse(
-            message="Email updated. Verify the new email address to continue logging in.",
+            message="Email updated. Verify the new email address to continue using this account.",
             verification_required=True,
         )
 
@@ -291,27 +328,56 @@ class AuthService:
             verification_required=not user.is_email_verified,
         )
 
-    async def _create_email_verification_code(self, user_id: UUID) -> EmailVerificationCode:
-        existing_codes = (
+    async def _issue_email_verification_code(
+        self,
+        user: User,
+        purpose: VerificationPurpose,
+        target_email: str,
+    ) -> str:
+        active_records = (
             await self.db.scalars(
                 select(EmailVerificationCode).where(
-                    EmailVerificationCode.user_id == user_id,
+                    EmailVerificationCode.user_id == user.id,
+                    EmailVerificationCode.consumed_at.is_(None),
+                )
+            )
+        ).all()
+        active_email_records = (
+            await self.db.scalars(
+                select(EmailVerificationCode).where(
+                    EmailVerificationCode.sent_to_email == target_email,
                     EmailVerificationCode.consumed_at.is_(None),
                 )
             )
         ).all()
         now = self._utcnow()
-        for existing_code in existing_codes:
-            existing_code.consumed_at = now
+        for record in active_email_records:
+            if record.user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A verification process is already pending for this email address",
+                )
+        for record in active_records:
+            if (now - self._to_utc_aware(record.last_sent_at)).total_seconds() < settings.email_verification_resend_cooldown_seconds:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Please wait before requesting another verification code",
+                )
+            record.consumed_at = now
 
-        code_entry = EmailVerificationCode(
-            user_id=user_id,
-            code=self._generate_verification_code(),
-            expires_at=now + timedelta(minutes=15),
+        code = self._generate_verification_code()
+        record = EmailVerificationCode(
+            user_id=user.id,
+            purpose=purpose,
+            sent_to_email=target_email,
+            code_hash=self._hash_verification_code(target_email, purpose, code),
+            expires_at=now + timedelta(minutes=settings.email_verification_code_expire_minutes),
+            last_sent_at=now,
+            attempt_count=0,
         )
-        self.db.add(code_entry)
+        self.db.add(record)
         await self.db.flush()
-        return code_entry
+        return code
 
     async def _ensure_onboarding_progress(self, user_id: UUID) -> OnboardingProgress:
         onboarding = await self.db.scalar(select(OnboardingProgress).where(OnboardingProgress.user_id == user_id))
@@ -321,6 +387,30 @@ class AuthService:
             await self.db.flush()
         return onboarding
 
+    def _queue_verification_email(
+        self,
+        background_tasks: BackgroundTasks,
+        recipient_email: str,
+        code: str,
+        purpose: VerificationPurpose,
+    ) -> None:
+        if not self.email_service.is_configured():
+            return
+        background_tasks.add_task(
+            self.email_service.send_verification_code,
+            recipient_email,
+            code,
+            purpose.value,
+            settings.email_verification_code_expire_minutes,
+        )
+
+    def _ensure_email_delivery_ready(self) -> None:
+        if not settings.app_debug and not self.email_service.is_configured():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Email delivery is not configured",
+            )
+
     @staticmethod
     def _generate_verification_code() -> str:
         return f"{secrets.randbelow(1_000_000):06d}"
@@ -328,6 +418,12 @@ class AuthService:
     @staticmethod
     def _utcnow() -> datetime:
         return datetime.now(timezone.utc)
+
+    @staticmethod
+    def _to_utc_aware(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def _decode_token(self, token: str, expected_type: str) -> dict:
         try:
@@ -369,3 +465,8 @@ class AuthService:
             onboarding_completed=bool(onboarding and onboarding.is_completed),
             has_pin=user.has_pin,
         )
+
+    def _hash_verification_code(self, email: str, purpose: VerificationPurpose, code: str) -> str:
+        message = f"{self._normalize_email(email)}:{purpose.value}:{code}".encode("utf-8")
+        secret = settings.jwt_secret_key.encode("utf-8")
+        return hmac.new(secret, message, sha256).hexdigest()

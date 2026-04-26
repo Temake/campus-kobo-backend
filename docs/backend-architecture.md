@@ -106,7 +106,7 @@ FastAPI is organized by product domains that mirror the UI, with async SQLAlchem
 ### Verify email
 
 1. `POST /api/v1/auth/verify-email`
-2. Match verification code.
+2. Match a 6-digit verification code against its stored hash.
 3. Mark account active and verified.
 
 ### Login
@@ -130,6 +130,12 @@ FastAPI is organized by product domains that mirror the UI, with async SQLAlchem
 1. `POST /api/v1/auth/logout`
 2. Revoke refresh token.
 3. Optionally close current device session.
+
+### Email delivery
+
+1. Verification emails are sent through Brevo SMTP.
+2. Store only a derived code hash in the database, never the raw code.
+3. Enforce resend cooldowns and bounded verification attempts.
 
 ## 4. API surface
 

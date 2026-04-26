@@ -27,6 +27,7 @@ def _timestamps() -> list[sa.Column]:
 def upgrade() -> None:
     user_status = sa.Enum("pending_verification", "active", "suspended", "deleted", name="userstatus")
     auth_provider = sa.Enum("email", "phone", "google", "apple", name="authprovider")
+    verification_purpose = sa.Enum("signup", "change_email", name="verificationpurpose")
     budget_status = sa.Enum("active", "archived", name="budgetstatus")
     expense_status = sa.Enum("logged", "edited", "deleted", name="expensestatus")
     user_goal_type = sa.Enum("stay_on_budget", "track_expenses", "save_money", name="usergoaltype")
@@ -36,6 +37,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     user_status.create(bind, checkfirst=True)
     auth_provider.create(bind, checkfirst=True)
+    verification_purpose.create(bind, checkfirst=True)
     budget_status.create(bind, checkfirst=True)
     expense_status.create(bind, checkfirst=True)
     user_goal_type.create(bind, checkfirst=True)
@@ -125,13 +127,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_email_verification_codes_lookup",
-        "email_verification_codes",
-        ["user_id", "code", "consumed_at"],
-        unique=False,
-    )
-
     op.create_table(
         "user_sessions",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -164,12 +159,28 @@ def upgrade() -> None:
         "email_verification_codes",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("code", sa.String(length=12), nullable=False),
+        sa.Column("purpose", verification_purpose, nullable=False),
+        sa.Column("sent_to_email", sa.String(length=255), nullable=False),
+        sa.Column("code_hash", sa.String(length=255), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_sent_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("attempt_count", sa.Integer(), nullable=False),
         *_timestamps(),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "ix_email_verification_codes_lookup",
+        "email_verification_codes",
+        ["user_id", "purpose", "consumed_at"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_email_verification_codes_email_lookup",
+        "email_verification_codes",
+        ["sent_to_email", "purpose", "consumed_at"],
+        unique=False,
     )
 
     op.create_table(
@@ -311,6 +322,7 @@ def downgrade() -> None:
     op.drop_table("savings_goals")
     op.drop_table("expenses")
     op.drop_table("budgets")
+    op.drop_index("ix_email_verification_codes_email_lookup", table_name="email_verification_codes")
     op.drop_index("ix_email_verification_codes_lookup", table_name="email_verification_codes")
     op.drop_table("email_verification_codes")
     op.drop_table("refresh_tokens")
@@ -329,4 +341,5 @@ def downgrade() -> None:
     sa.Enum(name="expensestatus").drop(bind, checkfirst=True)
     sa.Enum(name="budgetstatus").drop(bind, checkfirst=True)
     sa.Enum(name="authprovider").drop(bind, checkfirst=True)
+    sa.Enum(name="verificationpurpose").drop(bind, checkfirst=True)
     sa.Enum(name="userstatus").drop(bind, checkfirst=True)
