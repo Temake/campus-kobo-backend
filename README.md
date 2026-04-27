@@ -1,6 +1,6 @@
 # CampusKobo Backend
 
-FastAPI backend architecture scaffolded from the CampusKobo mobile UI flows in Figma.
+FastAPI backend architecture
 
 ## What is included
 
@@ -39,6 +39,20 @@ uvicorn app.main:app --reload
 ## Environment variables
 
 Copy `.env.example` to `.env` and update values.
+
+Database selection:
+
+- `APP_ENV=development` uses `DEVELOPMENT_DATABASE_URL`
+- `APP_ENV=production` uses `PRODUCTION_DATABASE_URL` and falls back to `DATABASE_URL` if not set
+- `DATABASE_URL` is used as a fallback for non-standard environments
+
+Example:
+
+```env
+APP_ENV=development
+DEVELOPMENT_DATABASE_URL=sqlite+aiosqlite:///./campuskobo.db
+PRODUCTION_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require
+```
 
 ## Database initialization
 

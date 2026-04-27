@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from uuid import uuid4
 
 from alembic import context
 from sqlalchemy import pool
@@ -12,9 +13,8 @@ from app.db.base import Base
 from app.models import *  # noqa: F403
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
-print(settings.database_url)
-print(settings.app_env)
+config.set_main_option("sqlalchemy.url", settings.resolved_database_url)
+
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -44,10 +44,20 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    engine_kwargs: dict[str, object] = {
+        "prefix": "sqlalchemy.",
+        "poolclass": pool.NullPool,
+        "connect_args": settings.database_connect_args,
+    }
+
+    if settings.uses_pgbouncer:
+        connect_args = dict(settings.database_connect_args)
+        connect_args["prepared_statement_name_func"] = lambda: f"__asyncpg_{uuid4()}__"
+        engine_kwargs["connect_args"] = connect_args
+
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        **engine_kwargs,
     )
 
     async with connectable.connect() as connection:

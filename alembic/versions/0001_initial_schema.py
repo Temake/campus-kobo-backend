@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0001_initial_schema"
@@ -24,17 +25,30 @@ def _timestamps() -> list[sa.Column]:
     ]
 
 
-def upgrade() -> None:
-    user_status = sa.Enum("pending_verification", "active", "suspended", "deleted", name="userstatus")
-    auth_provider = sa.Enum("email", "phone", "google", "apple", name="authprovider")
-    verification_purpose = sa.Enum("signup", "change_email", name="verificationpurpose")
-    budget_status = sa.Enum("active", "archived", name="budgetstatus")
-    expense_status = sa.Enum("logged", "edited", "deleted", name="expensestatus")
-    user_goal_type = sa.Enum("stay_on_budget", "track_expenses", "save_money", name="usergoaltype")
-    savings_goal_status = sa.Enum("active", "completed", "paused", "cancelled", name="savingsgoalstatus")
-    support_message_status = sa.Enum("open", "in_progress", "resolved", name="supportmessagestatus")
+def _drop_enum_type_if_exists(name: str) -> None:
+    op.execute(sa.text(f"DROP TYPE IF EXISTS {name} CASCADE;"))
 
+
+def upgrade() -> None:
     bind = op.get_bind()
+
+    user_status = postgresql.ENUM(
+        "pending_verification", "active", "suspended", "deleted", name="userstatus", create_type=False
+    )
+    auth_provider = postgresql.ENUM("email", "phone", "google", "apple", name="authprovider", create_type=False)
+    verification_purpose = postgresql.ENUM("signup", "change_email", name="verificationpurpose", create_type=False)
+    budget_status = postgresql.ENUM("active", "archived", name="budgetstatus", create_type=False)
+    expense_status = postgresql.ENUM("logged", "edited", "deleted", name="expensestatus", create_type=False)
+    user_goal_type = postgresql.ENUM(
+        "stay_on_budget", "track_expenses", "save_money", name="usergoaltype", create_type=False
+    )
+    savings_goal_status = postgresql.ENUM(
+        "active", "completed", "paused", "cancelled", name="savingsgoalstatus", create_type=False
+    )
+    support_message_status = postgresql.ENUM(
+        "open", "in_progress", "resolved", name="supportmessagestatus", create_type=False
+    )
+
     user_status.create(bind, checkfirst=True)
     auth_provider.create(bind, checkfirst=True)
     verification_purpose.create(bind, checkfirst=True)
@@ -334,12 +348,11 @@ def downgrade() -> None:
     op.drop_table("learning_categories")
     op.drop_table("users")
 
-    bind = op.get_bind()
-    sa.Enum(name="supportmessagestatus").drop(bind, checkfirst=True)
-    sa.Enum(name="savingsgoalstatus").drop(bind, checkfirst=True)
-    sa.Enum(name="usergoaltype").drop(bind, checkfirst=True)
-    sa.Enum(name="expensestatus").drop(bind, checkfirst=True)
-    sa.Enum(name="budgetstatus").drop(bind, checkfirst=True)
-    sa.Enum(name="authprovider").drop(bind, checkfirst=True)
-    sa.Enum(name="verificationpurpose").drop(bind, checkfirst=True)
-    sa.Enum(name="userstatus").drop(bind, checkfirst=True)
+    _drop_enum_type_if_exists("supportmessagestatus")
+    _drop_enum_type_if_exists("savingsgoalstatus")
+    _drop_enum_type_if_exists("usergoaltype")
+    _drop_enum_type_if_exists("expensestatus")
+    _drop_enum_type_if_exists("budgetstatus")
+    _drop_enum_type_if_exists("authprovider")
+    _drop_enum_type_if_exists("verificationpurpose")
+    _drop_enum_type_if_exists("userstatus")
