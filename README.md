@@ -36,6 +36,22 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+## Docker
+
+Docker Compose uses its own PostgreSQL container and does not replace your existing local database settings.
+It is only used when you explicitly run Compose.
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- API on `http://localhost:8000`
+- PostgreSQL on host port `54329`
+
+The Docker stack injects its own `DATABASE_URL` internally, so your normal `.env`, `DEVELOPMENT_DATABASE_URL`, and `PRODUCTION_DATABASE_URL` workflow remains unchanged outside Docker.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and update values.

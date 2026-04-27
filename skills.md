@@ -69,6 +69,7 @@ The backend is built with:
 - Google identity token verification
 - Brevo SMTP email delivery
 - environment-driven database selection
+- Dockerized runtime with isolated Compose database support
 
 Current project shape:
 
@@ -86,6 +87,10 @@ Current project shape:
   - engine, session, and local bootstrap
 - `alembic`
   - schema migrations
+- `Dockerfile`
+  - container image for the API
+- `docker-compose.yml`
+  - isolated API + PostgreSQL runtime used only when Compose is explicitly started
 
 Architectural rule:
 
@@ -120,6 +125,12 @@ Current environment model:
 - `DATABASE_URL`
   - explicit override for either environment
 
+Docker runtime rule:
+
+- Docker Compose provides its own `DATABASE_URL` pointing to its own Postgres container
+- Docker must not override or mutate the normal local environment workflow unless Compose is being used
+- local development and production env switching logic must continue to work outside Docker exactly as before
+
 Important implementation details:
 
 - the app and Alembic must use the same resolved database URL
@@ -133,6 +144,7 @@ Agent guidance:
 - if you are debugging enums, migrations, pooling, or SSL, reproduce against PostgreSQL
 - do not mix local SQLite assumptions into production migration logic
 - if a migration partially failed in Postgres, inspect leftover tables, indexes, and enum types before rerunning
+- if debugging a Docker-only issue, inspect Compose-provided env vars before touching the core settings model
 
 ## Current Auth Surface
 
@@ -159,6 +171,7 @@ User-level account outcomes currently supported:
 - change of password
 - change of email with re-verification
 - account PIN creation
+- onboarding completion after first expense creation
 
 ## Authentication Rules
 
@@ -230,6 +243,7 @@ Important auth constraints:
 - PIN creation is protected by password confirmation
 - email normalization should be consistent across registration, login, verification, resend, and change-email
 - password and PIN hashing are CPU-bound and should not block the async event loop
+- first-expense onboarding completion should happen through the expense write path, not through a fake onboarding shortcut
 
 ## Verification Data Model Semantics
 
@@ -278,6 +292,19 @@ Important entities:
 - `faq_items`
 - `support_messages`
 
+Onboarding-specific persistence:
+
+- `user_goals`
+  - stores the primary first-time goal
+- `budgets`
+  - stores the first monthly budget
+- `expense_categories`
+  - stores materialized user categories selected during onboarding
+- `expenses`
+  - first expense write completes the current onboarding implementation
+- `onboarding_progress`
+  - drives step progression and completion state
+
 Important schema-specific notes:
 
 - `users.provider_subject` is used for durable external identity linkage
@@ -322,6 +349,7 @@ For those paths, another agent should assume:
 - avoid synchronous provider calls unless wrapped or offloaded
 - avoid debug-only logic leaking into production behavior
 - background work is acceptable, but response semantics must remain accurate
+- onboarding-completing expense creation should stay efficient because it is part of first-session activation
 
 ## Security Expectations
 
@@ -368,6 +396,7 @@ Issues encountered during current buildout:
 - Postgres `sslmode` style URLs need normalization for `asyncpg`
 - Postgres enum creation can fail on reruns if a partial prior attempt left types behind
 - dev and production DB concerns must remain separate because SQLite and PostgreSQL behave differently around DDL and datetimes
+- Docker runtime should stay isolated from non-Docker local DB settings
 
 When another agent debugs a failure, likely hotspots are:
 
@@ -376,8 +405,12 @@ When another agent debugs a failure, likely hotspots are:
 - `alembic/env.py`
 - `alembic/versions/0001_initial_schema.py`
 - `app/services/auth.py`
+- `app/services/onboarding.py`
+- `app/services/expenses.py`
 - `app/integrations/email.py`
 - `app/integrations/google_identity.py`
+- `docker-compose.yml`
+- `Dockerfile`
 
 ## Coding Guidance For Future Work
 
@@ -392,6 +425,7 @@ Additional guidance for another agent:
 - before changing auth, read the current route contracts and service signatures together
 - before editing migrations, inspect whether the target DB is SQLite or PostgreSQL
 - before changing email verification behavior, check register, verify-email, resend-verification, and change-email together
+- before changing onboarding, check goal selection, first budget, category setup, and first expense completion together
 - if introducing a new provider, put it under `app/integrations`
 - if changing settings behavior, keep runtime and Alembic resolution in sync
 - if adding new response fields, think about debug-vs-production behavior explicitly
@@ -403,8 +437,10 @@ High-value follow-up items:
 - add password reset via Brevo
 - add PIN reset / rotation flows
 - add more complete onboarding completion updates
+- add a dedicated onboarding success/readiness endpoint if the mobile app needs a final confirmation screen contract
 - add auth integration tests
 - add migration smoke tests for SQLite and PostgreSQL
+- add Docker smoke tests or startup checks
 - add structured logging around auth and email delivery
 - add rate limiting or abuse protection for auth endpoints
 
