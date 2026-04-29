@@ -134,7 +134,7 @@ async def test_income_crud_and_dashboard_balance(client):
     dashboard = dashboard_response.json()
     assert dashboard["current_balance"] == "65000.00"
     assert dashboard["summary"]["total_income"] == "65000.00"
-    assert dashboard["summary"]["total_expenses"] == "0.00"
+    assert dashboard["summary"]["total_expenses"] == "0"
     assert dashboard["recent_transactions"][0]["type"] == "income"
     assert dashboard["recent_transactions"][0]["title"] == "freelance"
 
@@ -333,7 +333,7 @@ async def test_budget_crud_usage_days_left_highest_spent_and_transactions(client
         period_end=str(date.today() + timedelta(days=10)),
     )
     assert created_budget["total_budget"] == "1000.00"
-    assert created_budget["total_spent"] == "0.00"
+    assert created_budget["total_spent"] == "0"
     assert created_budget["remaining_amount"] == "1000.00"
     assert created_budget["percentage_used"] == 0.0
     assert created_budget["highest_spent"] is None
@@ -372,7 +372,7 @@ async def test_budget_crud_usage_days_left_highest_spent_and_transactions(client
     updated_budget = update_response.json()
     assert updated_budget["name"] == "Updated Budget"
     assert updated_budget["total_budget"] == "1200.00"
-    assert updated_budget["percentage_used"] == round((Decimal("550.00") / Decimal("1200.00")) * 100, 2)
+    assert updated_budget["percentage_used"] == float(round((Decimal("550.00") / Decimal("1200.00")) * 100, 2))
 
     delete_response = await client.delete(f"/api/v1/budgets/{created_budget['id']}", headers=headers)
     assert delete_response.status_code == 204

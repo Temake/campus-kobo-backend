@@ -11,15 +11,15 @@ class ExpenseBaseRequest(BaseModel):
     category: str | None = Field(default=None, min_length=1, max_length=100)
     amount: Decimal = Field(gt=0)
     currency: str = "NGN"
-    date: date | None = None
-    spent_on: date | None = None
+    date: datetime | None = None
+    spent_on: datetime | None = None
     note: str | None = Field(default=None, max_length=255)
     description: str | None = None
     category_id: str | None = None
     merchant_name: str | None = Field(default=None, max_length=255)
     is_recurring: bool = False
     repeats: ExpenseRepeat | None = None
-    next_due_date: date | None = None
+    next_due_date: datetime | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ExpenseBaseRequest":
@@ -47,7 +47,7 @@ class ExpenseResponse(BaseModel):
     category: str | None = None
     amount: Decimal
     currency: str = "NGN"
-    date: date
+    date: datetime
     note: str | None = None
     is_recurring: bool
     repeats: ExpenseRepeat | None = None
