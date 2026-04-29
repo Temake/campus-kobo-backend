@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from typing import Any
 
 from jose import jwt
@@ -21,7 +22,9 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta, extra:
     payload: dict[str, Any] = {
         "sub": subject,
         "type": token_type,
+        "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + expires_delta,
+        "jti": str(uuid4()),
     }
     if extra:
         payload.update(extra)
