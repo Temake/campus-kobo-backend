@@ -3,7 +3,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -17,7 +17,10 @@ class BudgetStatus(str, enum.Enum):
 
 class Budget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "budgets"
-    __table_args__ = (UniqueConstraint("user_id", "period_start", "period_end", name="uq_budgets_period"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "period_start", "period_end", name="uq_budgets_period"),
+        Index("ix_budgets_user_period", "user_id", "period_start", "period_end"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), default="Monthly Budget", nullable=False)

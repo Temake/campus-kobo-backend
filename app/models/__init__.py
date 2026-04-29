@@ -1,7 +1,8 @@
 from app.models.budget import Budget, BudgetStatus
 from app.models.category import ExpenseCategory
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.expense import Expense, ExpenseStatus
+from app.models.expense import Expense, ExpenseRepeat, ExpenseStatus
+from app.models.income import Income
 from app.models.learning import ContentBookmark, LearningCategory, LearningContent
 from app.models.notification import NotificationPreference
 from app.models.onboarding import OnboardingProgress, UserGoal, UserGoalType

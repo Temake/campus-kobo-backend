@@ -3,7 +3,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -19,6 +19,9 @@ class SavingsGoalStatus(str, enum.Enum):
 
 class SavingsGoal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "savings_goals"
+    __table_args__ = (
+        Index("ix_savings_goals_user_target_date", "user_id", "target_date"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
