@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.user import User, UserStatus
+from app.models.user import User, UserRole, UserStatus
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 DBSession = Annotated[AsyncSession, Depends(get_db)]
@@ -45,3 +45,9 @@ async def get_current_user(
     if user is None or user.status == UserStatus.deleted:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found")
     return user
+
+
+async def get_current_admin(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges are required")
+    return current_user

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     brevo_smtp_key: str | None = None
     mail_from_email: str | None = None
     mail_from_name: str = "CampusKobo"
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: str | None = None
+    admin_setup_token: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
 

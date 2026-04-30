@@ -20,6 +20,7 @@ from app.models.user import (
     EmailVerificationCode,
     RefreshToken,
     User,
+    UserRole,
     UserSession,
     UserStatus,
     VerificationPurpose,
@@ -45,6 +46,7 @@ class AuthService:
 
     async def register(self, payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks) -> TokenResponse:
         self._ensure_email_delivery_ready()
+        self._ensure_strong_password(payload.password)
         normalized_email = self._normalize_email(payload.email)
         existing_user = await self.db.scalar(select(User).where(User.email == normalized_email))
         if existing_user is not None:
@@ -68,7 +70,7 @@ class AuthService:
             target_email=normalized_email,
         )
 
-        token_response = await self._issue_tokens(user, request)
+        token_response = await self._issue_tokens(user, request=None)
         await self.db.commit()
         self._queue_verification_email(background_tasks, normalized_email, verification_code, VerificationPurpose.signup)
 
@@ -134,6 +136,8 @@ class AuthService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Email address is not verified. Verify your email before logging in.",
             )
+        if user.role == UserRole.admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Use the admin login route")
 
         user.status = UserStatus.active
         token_response = await self._issue_tokens(user, request)
@@ -224,6 +228,7 @@ class AuthService:
         self._queue_verification_email(background_tasks, normalized_email, verification_code, purpose)
 
     async def change_password(self, current_user: User, payload: ChangePasswordRequest) -> ActionResponse:
+        self._ensure_strong_password(payload.new_password)
         if current_user.password_hash is None or not await self._verify_secret(payload.current_password, current_user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
         if payload.current_password == payload.new_password:
@@ -298,8 +303,9 @@ class AuthService:
         await self.db.commit()
 
     async def _issue_tokens(self, user: User, request: Request | None) -> TokenResponse:
-        access_token = create_access_token(str(user.id), extra={"email": user.email})
-        refresh_token = create_refresh_token(str(user.id), extra={"email": user.email})
+        token_claims = {"email": user.email, "role": user.role.value}
+        access_token = create_access_token(str(user.id), extra=token_claims)
+        refresh_token = create_refresh_token(str(user.id), extra=token_claims)
 
         user.last_login_at = self._utcnow()
         self.db.add(
@@ -465,6 +471,17 @@ class AuthService:
             onboarding_completed=bool(onboarding and onboarding.is_completed),
             has_pin=user.has_pin,
         )
+
+    @staticmethod
+    def _ensure_strong_password(password: str) -> None:
+        has_upper = any(character.isupper() for character in password)
+        has_lower = any(character.islower() for character in password)
+        has_digit = any(character.isdigit() for character in password)
+        if len(password) < 8 or not (has_upper and has_lower and has_digit):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Password must be at least 8 characters and include uppercase, lowercase, and a number",
+            )
 
     def _hash_verification_code(self, email: str, purpose: VerificationPurpose, code: str) -> str:
         message = f"{self._normalize_email(email)}:{purpose.value}:{code}".encode("utf-8")

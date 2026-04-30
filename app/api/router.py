@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, budgets, dashboard, expenses, income, learning, notifications, onboarding, savings, support, users
+from app.api.routes import admin, auth, budgets, dashboard, expenses, income, learning, notifications, onboarding, savings, support, users
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
