@@ -23,18 +23,18 @@ def create_app() -> FastAPI:
         openapi_url=None,
     )
 
-    DocsAuth = Annotated[str, Depends(get_current_user_id)]
+    CurrentUserId = Annotated[str, Depends(get_current_user_id)]
 
     @app.get("/openapi.json", include_in_schema=False)
-    def openapi_spec(_: DocsAuth) -> dict[str, Any]:
+    def openapi_spec(_: CurrentUserId) -> dict[str, Any]:
         return app.openapi()
 
     @app.get("/docs", include_in_schema=False)
-    def swagger_ui(_: DocsAuth) -> HTMLResponse:
+    def swagger_ui(_: CurrentUserId) -> HTMLResponse:
         return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{settings.app_name} - Docs")
 
     @app.get("/redoc", include_in_schema=False)
-    def redoc_ui(_: DocsAuth) -> HTMLResponse:
+    def redoc_ui(_: CurrentUserId) -> HTMLResponse:
         return get_redoc_html(openapi_url="/openapi.json", title=f"{settings.app_name} - ReDoc")
     app.include_router(api_router, prefix="/api/v1")
     
