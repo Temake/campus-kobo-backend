@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Any, Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -26,7 +26,7 @@ def create_app() -> FastAPI:
     DocsAuth = Annotated[str, Depends(get_current_user_id)]
 
     @app.get("/openapi.json", include_in_schema=False)
-    def openapi_spec(_: DocsAuth) -> dict[str, object]:
+    def openapi_spec(_: DocsAuth) -> dict[str, Any]:
         return app.openapi()
 
     @app.get("/docs", include_in_schema=False)
