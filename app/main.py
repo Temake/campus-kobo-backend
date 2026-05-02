@@ -24,15 +24,15 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/openapi.json", include_in_schema=False)
-    def openapi_spec(user_id: Annotated[str, Depends(get_current_user_id)]) -> dict[str, Any]:
+    def openapi_spec(_user_id: Annotated[str, Depends(get_current_user_id)]) -> dict[str, Any]:
         return app.openapi()
 
     @app.get("/docs", include_in_schema=False)
-    def swagger_ui(user_id: Annotated[str, Depends(get_current_user_id)]) -> HTMLResponse:
+    def swagger_ui(_user_id: Annotated[str, Depends(get_current_user_id)]) -> HTMLResponse:
         return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{settings.app_name} - Docs")
 
     @app.get("/redoc", include_in_schema=False)
-    def redoc_ui(user_id: Annotated[str, Depends(get_current_user_id)]) -> HTMLResponse:
+    def redoc_ui(_user_id: Annotated[str, Depends(get_current_user_id)]) -> HTMLResponse:
         return get_redoc_html(openapi_url="/openapi.json", title=f"{settings.app_name} - ReDoc")
     app.include_router(api_router, prefix="/api/v1")
     
