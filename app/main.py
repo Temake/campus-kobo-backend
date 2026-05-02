@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 
 from app.api.deps import get_current_user_id
 from app.api.router import api_router
@@ -25,15 +26,15 @@ def create_app() -> FastAPI:
     DocsAuth = Annotated[str, Depends(get_current_user_id)]
 
     @app.get("/openapi.json", include_in_schema=False)
-    def openapi_schema(_: DocsAuth) -> dict[str, object]:
+    def openapi_spec(_: DocsAuth) -> dict[str, object]:
         return app.openapi()
 
     @app.get("/docs", include_in_schema=False)
-    def swagger_ui(_: DocsAuth):
+    def swagger_ui(_: DocsAuth) -> HTMLResponse:
         return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{settings.app_name} - Docs")
 
     @app.get("/redoc", include_in_schema=False)
-    def redoc_ui(_: DocsAuth):
+    def redoc_ui(_: DocsAuth) -> HTMLResponse:
         return get_redoc_html(openapi_url="/openapi.json", title=f"{settings.app_name} - ReDoc")
     app.include_router(api_router, prefix="/api/v1")
     
