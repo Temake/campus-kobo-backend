@@ -36,6 +36,6 @@ class SavingsGoal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class SavingsContribution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "savings_contributions"
 
-    savings_goal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("savings_goals.id"), nullable=False)
+    savings_goal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("savings_goals.id", ondelete="CASCADE"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255))

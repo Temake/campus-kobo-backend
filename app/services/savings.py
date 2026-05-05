@@ -2,7 +2,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.savings import SavingsContribution, SavingsGoal, SavingsGoalStatus
@@ -58,6 +58,7 @@ class SavingsService:
 
     async def delete_goal(self, user_id: str, goal_id: str) -> None:
         goal = await self._get_owned_goal(user_id, goal_id)
+        await self.db.execute(delete(SavingsContribution).where(SavingsContribution.savings_goal_id == goal.id))
         await self.db.delete(goal)
         await self.db.commit()
 

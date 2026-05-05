@@ -472,6 +472,13 @@ async def test_savings_crud_progress_and_dashboard_section(client):
     assert dashboard["savings"]["target_amount"] == "120000.00"
     assert dashboard["savings"]["percentage_progress"] == 50.0
 
+    contribution_response = await client.post(
+        f"/api/v1/savings/goals/{created_goal['id']}/contributions",
+        json={"amount": "5000.00", "note": "Top up"},
+        headers=headers,
+    )
+    assert contribution_response.status_code == 201
+
     delete_response = await client.delete(f"/api/v1/savings/{created_goal['id']}", headers=headers)
     assert delete_response.status_code == 204
 
