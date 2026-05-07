@@ -15,7 +15,6 @@ class LearningCategory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    icon_name: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(Text)
     icon_name: Mapped[Optional[str]] = mapped_column(Text)
 

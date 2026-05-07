@@ -8,7 +8,7 @@ from app.db.base import Base
 
 
 class NotificationPreference(Base):
-    __tablename__ = "notification_preference_table"
+    __tablename__ = "notification_preference"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     all_notifications: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
