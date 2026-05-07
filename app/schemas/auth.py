@@ -24,6 +24,16 @@ class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
 
+class ForgetPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=12)
+    new_password: str = Field(min_length=8)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

@@ -34,6 +34,7 @@ from app.schemas.auth import (
     GoogleAuthRequest,
     LoginRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     VerifyEmailRequest,
 )
@@ -226,6 +227,76 @@ class AuthService:
         verification_code = await self._issue_email_verification_code(user=user, purpose=purpose, target_email=normalized_email)
         await self.db.commit()
         self._queue_verification_email(background_tasks, normalized_email, verification_code, purpose)
+
+    async def forget_password(self, email: str, background_tasks: BackgroundTasks) -> None:
+        self._ensure_email_delivery_ready()
+        normalized_email = self._normalize_email(email)
+        user = await self.db.scalar(select(User).where(User.email == normalized_email))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        if user.provider != AuthProvider.email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password reset is not supported for this account")
+
+        verification_code = await self._issue_email_verification_code(
+            user=user,
+            purpose=VerificationPurpose.forgetpassword,
+            target_email=normalized_email,
+        )
+        await self.db.commit()
+        self._queue_verification_email(background_tasks, normalized_email, verification_code, VerificationPurpose.forgetpassword)
+
+    async def reset_password(self, payload: ResetPasswordRequest) -> ActionResponse:
+        self._ensure_strong_password(payload.new_password)
+        normalized_email = self._normalize_email(payload.email)
+
+        verification_record = await self.db.scalar(
+            select(EmailVerificationCode)
+            .where(
+                EmailVerificationCode.sent_to_email == normalized_email,
+                EmailVerificationCode.purpose == VerificationPurpose.forgetpassword,
+                EmailVerificationCode.consumed_at.is_(None),
+            )
+            .order_by(EmailVerificationCode.created_at.desc())
+        )
+        if verification_record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active password reset request found")
+        if self._to_utc_aware(verification_record.expires_at) <= self._utcnow():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification code has expired")
+        if verification_record.attempt_count >= settings.email_verification_max_attempts:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many verification attempts")
+
+        verification_record.attempt_count += 1
+        provided_hash = self._hash_verification_code(
+            email=normalized_email,
+            purpose=VerificationPurpose.forgetpassword,
+            code=payload.code,
+        )
+        if not hmac.compare_digest(provided_hash, verification_record.code_hash):
+            await self.db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification code")
+
+        user = await self.db.scalar(select(User).where(User.id == verification_record.user_id))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        verification_record.consumed_at = self._utcnow()
+        user.password_hash = await self._hash_secret(payload.new_password)
+
+        # Revoke all existing refresh tokens for security
+        active_tokens = (
+            await self.db.scalars(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user.id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+            )
+        ).all()
+        now = self._utcnow()
+        for token in active_tokens:
+            token.revoked_at = now
+
+        await self.db.commit()
+        return ActionResponse(message="Password has been reset successfully")
 
     async def change_password(self, current_user: User, payload: ChangePasswordRequest) -> ActionResponse:
         self._ensure_strong_password(payload.new_password)

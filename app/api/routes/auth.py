@@ -9,10 +9,12 @@ from app.schemas.auth import (
     ChangeEmailRequest,
     ChangePasswordRequest,
     CreatePinRequest,
+    ForgetPasswordRequest,
     GoogleAuthRequest,
     LoginRequest,
     RefreshTokenRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     ResendVerificationRequest,
     TokenResponse,
     VerifyEmailRequest,
@@ -56,6 +58,16 @@ async def verify_email(payload: VerifyEmailRequest, db: DBSession) -> None:
 @router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
 async def resend_verification(payload: ResendVerificationRequest, background_tasks: BackgroundTasks, db: DBSession) -> None:
     await AuthService(db).resend_verification(payload.email, background_tasks)
+
+
+@router.post("/forget-password", status_code=status.HTTP_204_NO_CONTENT)
+async def forget_password(payload: ForgetPasswordRequest, background_tasks: BackgroundTasks, db: DBSession) -> None:
+    await AuthService(db).forget_password(payload.email, background_tasks)
+
+
+@router.post("/reset-password", response_model=ActionResponse)
+async def reset_password(payload: ResetPasswordRequest, db: DBSession) -> ActionResponse:
+    return await AuthService(db).reset_password(payload)
 
 
 @router.post("/change-password", response_model=ActionResponse)

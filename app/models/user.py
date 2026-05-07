@@ -31,6 +31,7 @@ class UserRole(str, enum.Enum):
 
 class VerificationPurpose(str, enum.Enum):
     signup = "signup"
+    forgetpassword = "forgetpassword"
     change_email = "change_email"
 
 
