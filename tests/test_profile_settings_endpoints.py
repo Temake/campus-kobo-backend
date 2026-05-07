@@ -57,7 +57,7 @@ async def test_user_can_update_profile_preferences_security_and_sessions(client)
 
     list_preferences_response = await client.get("/api/v1/notifications/preferences", headers=auth_headers)
     assert list_preferences_response.status_code == 200
-    assert list_preferences_response.json()[0]["notification_type"] == "budget_alerts"
+    assert list_preferences_response.json()["budget_alerts"] is True
 
     pin_response = await client.post(
         "/api/v1/auth/create-pin",
