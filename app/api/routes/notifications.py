@@ -10,11 +10,11 @@ router = APIRouter()
 
 
 @router.get("/preferences")
-async def list_preferences(
+async def get_preferences(
     current_user_id: Annotated[str, Depends(get_current_user_id)],
     db: DBSession,
-) -> list[NotificationPreferenceResponse]:
-    return await NotificationService(db).list_preferences(current_user_id)
+) -> NotificationPreferenceResponse:
+    return await NotificationService(db).get_preferences(current_user_id)
 
 
 @router.put("/preferences", response_model=NotificationPreferenceResponse)
