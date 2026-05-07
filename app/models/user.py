@@ -1,4 +1,5 @@
 import enum
+from typing import Optional
 import uuid
 from datetime import datetime
 
@@ -56,6 +57,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     admin_two_factor_secret: Mapped[str | None] = mapped_column(String(255))
     admin_ip_allowlist: Mapped[str | None] = mapped_column(Text)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    app_lock_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
+    face_id_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
     sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")

@@ -1,7 +1,8 @@
 import enum
+from typing import Optional
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,6 +14,10 @@ class LearningCategory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    icon_name: Mapped[str | None] = mapped_column(String(100))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    icon_name: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class LearningContentStatus(str, enum.Enum):
@@ -33,10 +38,26 @@ class LearningContent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     media_url: Mapped[str | None] = mapped_column(String(500))
     media_public_id: Mapped[str | None] = mapped_column(String(255))
     media_resource_type: Mapped[str | None] = mapped_column(String(32))
+    duration: Mapped[str | None] = mapped_column(String(100))
+    key_takeaways: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    related_content_ids: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    episode_number: Mapped[int | None] = mapped_column(Integer)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[LearningContentStatus] = mapped_column(
         Enum(LearningContentStatus), default=LearningContentStatus.draft, nullable=False
     )
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class GlossaryTerm(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "glossary_terms"
+
+    term: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    definition: Mapped[str] = mapped_column(Text, nullable=False)
+    part_of_speech: Mapped[str | None] = mapped_column(String(50), default="noun")
+    example: Mapped[str | None] = mapped_column(Text)
+    related_terms: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    is_term_of_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class ContentBookmark(UUIDPrimaryKeyMixin, TimestampMixin, Base):

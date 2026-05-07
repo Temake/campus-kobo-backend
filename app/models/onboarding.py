@@ -17,7 +17,7 @@ class UserGoalType(str, enum.Enum):
 class UserGoal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "user_goals"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     goal_type: Mapped[UserGoalType] = mapped_column(Enum(UserGoalType), nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -25,7 +25,7 @@ class UserGoal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class OnboardingProgress(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "onboarding_progress"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     current_step: Mapped[str] = mapped_column(String(64), nullable=False, default="intro")
     completed_step_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
