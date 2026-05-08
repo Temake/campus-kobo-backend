@@ -23,7 +23,7 @@ class SavingsGoal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_savings_goals_user_target_date", "user_id", "target_date"),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     target_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

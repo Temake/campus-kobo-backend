@@ -228,3 +228,13 @@ async def get_admin_analytics(
     db: DBSession,
 ) -> dict:
     return await LearningService(db).admin_analytics()
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    request: Request,
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    db: DBSession,
+) -> None:
+    await AdminAuthService(db).delete_user(current_admin, user_id, request)

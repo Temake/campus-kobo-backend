@@ -11,7 +11,7 @@ class ExpenseCategory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "expense_categories"
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_expense_categories_user_name"),)
 
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     icon_name: Mapped[str | None] = mapped_column(String(100))
     color_hex: Mapped[str | None] = mapped_column(String(7))

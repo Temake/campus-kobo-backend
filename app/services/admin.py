@@ -1,5 +1,6 @@
 import hmac
 from datetime import timedelta
+from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -103,6 +104,31 @@ class AdminAuthService:
             refresh_token=refresh_token,
             user=AdminUserResponse(id=str(user.id), email=user.email, full_name=user.full_name, role=user.role.value),
         )
+
+    async def delete_user(self, current_admin: User, user_id: str, request: Request) -> None:
+        try:
+            parsed_user_id = UUID(user_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
+
+        if parsed_user_id == current_admin.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own admin account")
+
+        user = await self.db.scalar(select(User).where(User.id == parsed_user_id))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        self.db.add(
+            AdminAuditLog(
+                admin_user_id=current_admin.id,
+                action="admin.delete_user",
+                resource_type="user",
+                resource_id=str(user.id),
+                ip_address=request.client.host if request.client else None,
+            )
+        )
+        await self.db.delete(user)
+        await self.db.commit()
 
     @staticmethod
     def _ip_allowed(user: User, request: Request) -> bool:

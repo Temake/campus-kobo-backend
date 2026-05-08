@@ -15,7 +15,7 @@ class Income(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_income_user_received_on", "user_id", "received_on"),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     received_on: Mapped[date] = mapped_column(Date, nullable=False)

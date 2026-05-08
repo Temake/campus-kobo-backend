@@ -88,6 +88,23 @@ async def test_admin_login_access_token_includes_role(client, test_session_facto
     assert payload["role"] == "admin"
 
 
+async def test_admin_can_delete_user(client, test_session_factory):
+    admin = await _create_admin(test_session_factory)
+    admin_login = await _admin_login(client, admin)
+    student_login = await _create_user(client, email="delete-me@example.com")
+    user_id = student_login["user"]["id"]
+
+    delete_response = await client.delete(
+        f"/api/v1/admin/users/{user_id}",
+        headers={"Authorization": f"Bearer {admin_login['access_token']}"},
+    )
+    assert delete_response.status_code == 204
+
+    async with test_session_factory() as session:
+        deleted_user = await session.scalar(select(User).where(User.id == UUID(user_id)))
+        assert deleted_user is None
+
+
 async def test_admin_can_manage_learning_content_and_analytics_without_financial_data(client, test_session_factory):
     admin = await _create_admin(test_session_factory)
     admin_login = await _admin_login(client, admin)

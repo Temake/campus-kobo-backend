@@ -1,8 +1,12 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from app.core.config import settings
+from app.models.user import EmailVerificationCode, RefreshToken, VerificationPurpose
+from app.services.auth import AuthService
 
 
 async def _register_user(
@@ -138,6 +142,55 @@ async def test_verify_then_login_refresh_logout_change_password_and_create_pin(c
     assert revoked_refresh_response.status_code == 401
 
 
+async def test_expired_refresh_token_is_deleted_from_database(client, test_session_factory):
+    verified_user = await _create_verified_user(
+        client,
+        email="expired-refresh@example.com",
+        password="StrongPass123",
+    )
+    refresh_token = verified_user["login"]["refresh_token"]
+
+    async with test_session_factory() as session:
+        stored_token = await session.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
+        assert stored_token is not None
+        stored_token.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await session.commit()
+
+    refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert refresh_response.status_code == 401
+    assert refresh_response.json()["detail"] == "Refresh token has expired"
+
+    async with test_session_factory() as session:
+        stored_token = await session.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
+        assert stored_token is None
+
+
+async def test_cleanup_expired_refresh_tokens_removes_only_expired_rows(client, test_session_factory):
+    first_user = await _create_verified_user(client, email="cleanup-expired@example.com")
+    second_user = await _create_verified_user(client, email="cleanup-valid@example.com")
+    expired_refresh_token = first_user["login"]["refresh_token"]
+    valid_refresh_token = second_user["login"]["refresh_token"]
+
+    async with test_session_factory() as session:
+        expired_token = await session.scalar(select(RefreshToken).where(RefreshToken.token == expired_refresh_token))
+        assert expired_token is not None
+        expired_token.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await session.commit()
+
+    async with test_session_factory() as session:
+        deleted_count = await AuthService(session).cleanup_expired_refresh_tokens()
+        assert deleted_count == 1
+
+    async with test_session_factory() as session:
+        expired_token = await session.scalar(select(RefreshToken).where(RefreshToken.token == expired_refresh_token))
+        valid_token = await session.scalar(select(RefreshToken).where(RefreshToken.token == valid_refresh_token))
+        assert expired_token is None
+        assert valid_token is not None
+
+
 async def test_resend_verification_issues_a_new_code_and_invalidates_the_previous_one(client, monkeypatch):
     original_cooldown = settings.email_verification_resend_cooldown_seconds
     monkeypatch.setattr(settings, "email_verification_resend_cooldown_seconds", 0)
@@ -224,6 +277,52 @@ async def test_change_email_flow_requires_reverification_and_switches_login_emai
     )
     assert new_email_login_response.status_code == 200
     assert new_email_login_response.json()["user"]["email"] == "changed@example.com"
+
+
+async def test_forget_password_issues_code_and_reset_revokes_old_refresh_token(client, test_session_factory, monkeypatch):
+    verified_user = await _create_verified_user(
+        client,
+        email="forgot-password@example.com",
+        password="StrongPass123",
+        full_name="Forgot Password",
+    )
+    old_refresh_token = verified_user["login"]["refresh_token"]
+    monkeypatch.setattr("app.services.auth.AuthService._generate_verification_code", staticmethod(lambda: "123456"))
+
+    forgot_response = await client.post(
+        "/api/v1/auth/forget-password",
+        json={"email": "forgot-password@example.com"},
+    )
+    assert forgot_response.status_code == 204
+
+    async with test_session_factory() as session:
+        verification_record = await session.scalar(
+            select(EmailVerificationCode)
+            .where(
+                EmailVerificationCode.sent_to_email == "forgot-password@example.com",
+                EmailVerificationCode.purpose == VerificationPurpose.forgetpassword,
+                EmailVerificationCode.consumed_at.is_(None),
+            )
+            .order_by(EmailVerificationCode.created_at.desc())
+        )
+
+    assert verification_record is not None
+
+    reset_response = await client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "email": "forgot-password@example.com",
+            "code": "123456",
+            "new_password": "NewStrongPass456",
+        },
+    )
+    assert reset_response.status_code == 200
+
+    revoked_refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert revoked_refresh_response.status_code == 401
 
 
 @pytest.mark.asyncio

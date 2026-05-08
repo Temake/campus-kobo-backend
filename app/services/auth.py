@@ -7,7 +7,8 @@ from uuid import UUID
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from jose import JWTError, jwt
-from sqlalchemy import select
+from jose.exceptions import ExpiredSignatureError
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -146,13 +147,19 @@ class AuthService:
         return token_response
 
     async def refresh(self, refresh_token: str) -> TokenResponse:
-        payload = self._decode_token(refresh_token, expected_type="refresh")
+        try:
+            payload = self._decode_token(refresh_token, expected_type="refresh")
+        except ExpiredSignatureError as exc:
+            await self._delete_refresh_token(refresh_token)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired") from exc
         user_id = self._parse_uuid(payload.get("sub"))
 
         stored_token = await self.db.scalar(select(RefreshToken).where(RefreshToken.token == refresh_token))
         if stored_token is None or stored_token.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is invalid or revoked")
         if self._to_utc_aware(stored_token.expires_at) <= self._utcnow():
+            await self.db.delete(stored_token)
+            await self.db.commit()
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired")
 
         user = await self.db.scalar(select(User).where(User.id == user_id))
@@ -373,6 +380,11 @@ class AuthService:
             stored_token.revoked_at = self._utcnow()
         await self.db.commit()
 
+    async def cleanup_expired_refresh_tokens(self) -> int:
+        result = await self.db.execute(delete(RefreshToken).where(RefreshToken.expires_at <= self._utcnow()))
+        await self.db.commit()
+        return result.rowcount or 0
+
     async def _issue_tokens(self, user: User, request: Request | None) -> TokenResponse:
         token_claims = {"email": user.email, "role": user.role.value}
         access_token = create_access_token(str(user.id), extra=token_claims)
@@ -505,12 +517,18 @@ class AuthService:
     def _decode_token(self, token: str, expected_type: str) -> dict:
         try:
             payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        except ExpiredSignatureError:
+            raise
         except JWTError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
         if payload.get("type") != expected_type:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         return payload
+
+    async def _delete_refresh_token(self, refresh_token: str) -> None:
+        await self.db.execute(delete(RefreshToken).where(RefreshToken.token == refresh_token))
+        await self.db.commit()
 
     @staticmethod
     def _parse_uuid(value: str | None) -> UUID:

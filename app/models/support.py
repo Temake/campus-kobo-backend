@@ -33,7 +33,7 @@ class FAQItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class SupportMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "support_messages"
 
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)

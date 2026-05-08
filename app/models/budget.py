@@ -22,7 +22,7 @@ class Budget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_budgets_user_period", "user_id", "period_start", "period_end"),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), default="Monthly Budget", nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), default="NGN", nullable=False)

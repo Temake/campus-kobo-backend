@@ -29,8 +29,8 @@ class Expense(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_expenses_user_spent_on", "user_id", "spent_on"),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    category_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expense_categories.id"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("expense_categories.id", ondelete="SET NULL"))
     category_name: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)

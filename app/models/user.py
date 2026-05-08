@@ -61,14 +61,18 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     app_lock_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     face_id_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
-    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class UserSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "user_sessions"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     device_name: Mapped[str | None] = mapped_column(String(255))
     device_id: Mapped[str | None] = mapped_column(String(255))
     platform: Mapped[str | None] = mapped_column(String(64))
@@ -83,7 +87,7 @@ class UserSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class AdminAuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "admin_audit_logs"
 
-    admin_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    admin_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
     resource_id: Mapped[str | None] = mapped_column(String(100))
@@ -97,7 +101,7 @@ class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "refresh_tokens"
     __table_args__ = (UniqueConstraint("token", name="uq_refresh_tokens_token"),)
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token: Mapped[str] = mapped_column(String(512), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -112,7 +116,7 @@ class EmailVerificationCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_email_verification_codes_email_lookup", "sent_to_email", "purpose", "consumed_at"),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     purpose: Mapped[VerificationPurpose] = mapped_column(Enum(VerificationPurpose), nullable=False)
     sent_to_email: Mapped[str] = mapped_column(String(255), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)

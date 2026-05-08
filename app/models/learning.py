@@ -28,7 +28,7 @@ class LearningContent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learning_content"
 
     category_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("learning_categories.id"))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     summary: Mapped[str | None] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text, nullable=False)
@@ -63,5 +63,5 @@ class ContentBookmark(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "content_bookmarks"
     __table_args__ = (UniqueConstraint("user_id", "content_id", name="uq_content_bookmarks_user_content"),)
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     content_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("learning_content.id"), nullable=False)
