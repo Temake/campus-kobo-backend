@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from app.core.config import settings
-from app.db.init_db import init_db
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.router import api_router
 from app.core.config import settings
+from app.db.init_db import init_db
 
 
 def create_app() -> FastAPI:
@@ -14,6 +16,19 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Backend architecture scaffold for the CampusKobo finance app.",
     )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:8081",
+            "http://localhost:19006",
+            "http://localhost:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(api_router, prefix="/api/v1")
     
     @app.get("/health", tags=["health"])
@@ -21,6 +36,4 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
-
-
 app = create_app()
